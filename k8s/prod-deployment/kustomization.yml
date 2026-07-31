@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: blog-app-ns
+
+resources:
+  - namespace.yml
+  - secret-store.yml
+  - external-secrets.yml
+  - redis-deployment.yml
+  - redis-service.yml
+  - app-pvc.yml
+  - app-deployment.yml
+  - app-service.yml
+  - app-scaling.yml
+  - service-monitor.yml
+
+
+configMapGenerator:
+- name: nginx-status-config
+  files:
+    - default.conf
+
+    

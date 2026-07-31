@@ -1,0 +1,8 @@
+upload
+.env
+.env.example
+.DS_Store
+scripts
+k8s-deployment
+argo-deployment
+email-config

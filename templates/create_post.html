@@ -1,0 +1,24 @@
+{% include './header.html' %}
+
+{% block content %}
+<div class="container" id="hero">
+    <h2>Create Post</h2>
+    <form method="POST" action="{{ url_for('posts.create') }}" enctype="multipart/form-data">
+        <div class="mb-3">
+            <label class="form-label">Title</label>
+            <input type="text" class="form-control" name="title" required>
+        </div>
+        <div class="form-floating mb-3">
+            <textarea class="form-control" id="floatingTextarea2" style="height: 100px" name="content" required></textarea>
+            <label for="floatingTextarea2">Content</label>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Image</label>
+            <input type="file" class="form-control" name="image" required>
+        </div>
+        <button type="submit" class="btn btn-dark">Post</button>
+    </form>
+</div>
+{% endblock %}
+
+{% include './footer.html' %}

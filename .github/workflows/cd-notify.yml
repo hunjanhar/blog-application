@@ -1,0 +1,87 @@
+name: CD Notification Workflow
+
+on:
+  workflow_call:
+    inputs:
+      deploy_result: 
+        type: string
+        required: true
+      argocd_sync_result:
+        type: string
+        required: true
+      owzap_scan_result:
+        type: string
+        required: true
+      server_ip:
+        type: string 
+        required: false
+        default: ''
+      github_repo:
+        type: string
+        required: true
+      github_repo_id:
+        type: string
+        required: true
+    secrets:
+      MAIL_USERNAME:
+        required: true
+      MAIL_APP_PASSWORD:
+        required: true
+      EMAIL:
+        required: true
+
+jobs:
+  send-email:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Status Email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_APP_PASSWORD }}
+          subject: "${{ (inputs.deploy_result == 'success' && inputs.argocd_sync_result == 'success' && inputs.owzap_scan_result == 'success') && '🚀 SUCCESS: CD Pipeline' || '💥 FAILURE: CD Pipeline' }}"
+          to: ${{ secrets.EMAIL }}
+          from: "GitHub Actions Workflow <${{ secrets.MAIL_USERNAME }}>"
+          html_body: |
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <style>
+                body { font-family: sans-serif; background-color: #f4f6f8; padding: 20px; }
+                .container { max-width: 600px; margin: auto; background: #ffffff; border-radius: 8px; border: 1px solid #e1e4e8; overflow: hidden; }
+                .header { padding: 24px; text-align: center; color: #ffffff; }
+                .header.success { background-color: #28a745; }
+                .header.failure { background-color: #d9534f; }
+                .content { padding: 24px; }
+                .status-table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+                .status-table td { padding: 12px 8px; border-bottom: 1px solid #edf2f7; }
+                .badge { padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; text-transform: uppercase; }
+                .badge-success { background-color: #e6fffa; color: #047857; border: 1px solid #a7f3d0; }
+                .badge-failure { background-color: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+                .btn { display: inline-block; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold; color: #ffffff !important; }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <div class="header ${{ (inputs.deploy_result == 'success' && inputs.argocd_sync_result == 'success' && inputs.owzap_scan_result == 'success') && 'success' || 'failure' }}">
+                  <h2>Pipeline Report</h2>
+                </div>
+                <div class="content">
+                  <p>Deployment execution for <b>${{ inputs.github_repo }}</b> finished.</p>
+                  
+                  <table class="status-table">
+                    <tr><td>Deployment:</td><td style="text-align: right;"><span class="badge ${{ inputs.deploy_result == 'success' && 'badge-success' || 'badge-failure' }}">${{ inputs.deploy_result }}</span></td></tr>
+                    <tr><td>ArgoCD Sync:</td><td style="text-align: right;"><span class="badge ${{ inputs.argocd_sync_result == 'success' && 'badge-success' || 'badge-failure' }}">${{ inputs.argocd_sync_result }}</span></td></tr>
+                    <tr><td>Security Scan:</td><td style="text-align: right;"><span class="badge ${{ inputs.owzap_scan_result == 'success' && 'badge-success' || 'badge-failure' }}">${{ inputs.owzap_scan_result }}</span></td></tr>
+                  </table>
+
+                  <div style="text-align: center;">
+                    ${{ (inputs.deploy_result == 'success' && inputs.server_ip != '') && format('<a href="http://{0}:8080" class="btn" style="background:#28a745;">🌐 Open App</a>', inputs.server_ip) || '' }}
+                    <a href="https://github.com/${{ inputs.github_repo }}/actions/runs/${{ inputs.github_repo_id }}" class="btn" style="background:#0969da; margin-left:10px;">🔍 View Logs</a>
+                  </div>
+                </div>
+              </div>
+            </body>
+            </html>

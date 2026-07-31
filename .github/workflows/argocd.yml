@@ -1,0 +1,52 @@
+name: Argocd Workflow
+
+on:
+  workflow_call:
+    inputs:
+      server_ip:
+        type: string
+        required: true
+    secrets:
+      SSH_PRIVATE_KEY:
+        required: true
+
+jobs:
+  argocd-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH Key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      
+      - name: Trigger ArgoCD Sync & Verify Health
+        run: |
+          # Now this will work because the key is loaded
+          ssh -o StrictHostKeyChecking=no ubuntu@${{ inputs.server_ip }} \
+            "export KUBECONFIG=~/.kube/config && \
+            kubectl annotate application blog-app-argocd -n argocd argocd.argoproj.io/refresh=normal --overwrite && \
+            echo 'Waiting for ArgoCD application sync...' && \
+            kubectl wait --for=jsonpath='{.status.operationState.phase}'=Succeeded application/blog-app-argocd -n argocd --timeout=150s && \
+            echo 'Waiting for ArgoCD application to reach Healthy status...' && \
+            kubectl wait --for=jsonpath='{.status.health.status}'=Healthy application/blog-app-argocd -n argocd --timeout=120s"
+
+      - name: Start Background Port-Forwards
+        run: |
+          ssh -o StrictHostKeyChecking=no ubuntu@${{ inputs.server_ip }} bash << 'EOF'
+            export KUBECONFIG=~/.kube/config
+            mkdir -p /tmp/logs
+
+            pkill -f "kubectl port-forward" || true
+            sleep 2
+
+            nohup kubectl port-forward svc/argocd-server 8085:443 -n argocd --address=0.0.0.0 > /tmp/logs/argocd.log 2>&1 &
+            nohup kubectl port-forward svc/kube-prometheus-stack-grafana 3000:80 -n monitoring --address=0.0.0.0 > /tmp/logs/grafana.log 2>&1 &
+            nohup kubectl port-forward svc/kube-prometheus-stack-prometheus 9090:9090 -n monitoring --address=0.0.0.0 > /tmp/logs/prometheus.log 2>&1 &
+
+            kubectl rollout status deployment/blog-app-deployment -n blog-app-ns --timeout=180s
+            
+            nohup kubectl port-forward svc/blog-app-service 8080:80 -n blog-app-ns --address=0.0.0.0 > /tmp/logs/app.log 2>&1 &
+          EOF

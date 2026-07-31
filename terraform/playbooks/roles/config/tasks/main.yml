@@ -1,0 +1,170 @@
+- name: Update apt packages
+  apt:
+    update_cache: yes
+    upgrade: dist
+  become: yes
+
+- name: Install system dependencies
+  apt:
+    name:
+      - curl
+      - wget
+      - git
+      - docker.io
+      - python3-pip
+    state: present
+  become: yes
+
+- name: Set vm.max_map_count for SonarQube Elasticsearch
+  sysctl:
+    name: vm.max_map_count
+    value: '262144'
+    state: present
+    reload: yes
+  become: yes
+
+- name: Install Python K8s & Docker SDKs for Ansible Modules
+  pip:
+    name:
+      - kubernetes
+      - jsonpatch
+      - docker
+    extra_args: --break-system-packages
+    state: present
+  become: yes
+
+- name: Enable and start Docker service
+  service:
+    name: docker
+    state: started
+    enabled: yes
+  become: yes
+
+- name: Add user to docker group
+  user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    append: yes
+  become: yes
+
+- name: Reset SSH connection to apply docker group changes
+  meta: reset_connection
+
+- name: Install kubectl
+  shell: |
+    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+  args:
+    creates: /usr/local/bin/kubectl
+  become: yes
+
+- name: Install minikube
+  shell: |
+    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+    install minikube-linux-amd64 /usr/local/bin/minikube
+  args:
+    creates: /usr/local/bin/minikube
+  become: yes
+
+- name: Install Helm
+  shell: |
+    curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+    chmod +x get_helm.sh
+    ./get_helm.sh
+  args:
+    creates: /usr/local/bin/helm
+  become: yes
+
+- name: Check Minikube status
+  shell: minikube status
+  become: no
+  register: minikube_check
+  failed_when: false
+  changed_when: false
+
+- name: Start minikube
+  shell: |
+    minikube start \
+      --driver=docker \
+      --cpus=2 \
+      --memory=3584 \
+      --disk-size=20g \
+      --wait-timeout=15m
+  become: no
+  when: "'Running' not in minikube_check.stdout"
+
+- name: Wait until Minikube environment is ready
+  shell: minikube status --format '{% raw %}{{.Host}}{% endraw %}'
+  become: no
+  register: minikube_status
+  until: minikube_status.stdout == "Running"
+  retries: 15
+  delay: 15
+
+- name: Give Kubernetes internal API server a warm-up buffer
+  pause:
+    seconds: 20
+
+- name: Ensure SonarQube Docker container is running
+  community.docker.docker_container:
+    name: sonarqube
+    image: sonarqube:lts-community
+    state: started
+    restart_policy: always
+    published_ports:
+      - "9000:9000"
+    env:
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
+
+- name: Register External Helm repositories
+  shell: |
+    helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+    helm repo add grafana https://grafana.github.io/helm-charts
+    helm repo add hashicorp https://helm.releases.hashicorp.com
+    helm repo add external-secrets https://charts.external-secrets.io
+    helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+    helm repo update
+  become: no
+
+- name: Deploy Ingress Nginx Controller Engine
+  shell: |
+    helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+      --namespace ingress-nginx \
+      --create-namespace \
+      --set controller.service.type=NodePort \
+      --set controller.watchIngressWithoutClass=true
+  become: no
+
+- name: Create monitoring namespace safely
+  shell: |
+    kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+  become: no
+
+- name: Deploy Prometheus & Grafana Stack
+  shell: |
+    helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+      --namespace monitoring \
+      --set prometheus.prometheusSpec.podAntiAffinity="hard" \
+      --set grafana.enabled=true
+  become: no
+
+- name: Deploy HashiCorp Vault
+  shell: |
+    helm upgrade --install vault hashicorp/vault --namespace vault --create-namespace --set "server.dev.enabled=true" --set "server.dev.devRootToken=root-token"
+  become: no
+
+- name: Deploy External Secrets Operator (ESO)
+  shell: |
+    helm upgrade --install external-secrets external-secrets/external-secrets \
+      --namespace external-secrets \
+      --create-namespace \
+      --set installCRDs=true \
+      --set resources.requests.memory=128Mi \
+      --set resources.limits.memory=256Mi
+  become: no
+
+- name: Spin up ArgoCD GitOps Operator
+  shell: |
+    kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+    kubectl apply -n argocd --server-side=true --force-conflicts -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+  become: no

@@ -1,0 +1,77 @@
+services:
+  mysql-service:
+    image: mysql:8.0
+    container_name: mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${MYSQL_DB}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "${MYSQL_USER}", "-p${MYSQL_PASSWORD}"]
+      timeout: 5s
+      retries: 5
+    networks:
+      - blog_network
+
+  redis-service:
+    image: redis:alpine
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - blog_network
+
+  web:
+    image: blog-app:latest
+    build: .
+    container_name: app
+    restart: always
+    expose:
+      - "5000"
+    volumes:
+      - uploads_data:/app/static/uploads
+    environment:
+      - MYSQL_HOST=mysql-service
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_DB=${MYSQL_DB}
+      - REDIS_HOST=redis-service
+      - REDIS_PORT=6379
+    depends_on:
+      mysql-service:
+        condition: service_healthy
+      redis-service:
+        condition: service_healthy
+    networks:
+      - blog_network
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    restart: always
+    ports:
+      - "80:80" 
+    volumes:
+      - ./default.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - web
+    networks:
+      - blog_network
+
+volumes:
+  db_data:
+  uploads_data:
+
+networks:
+  blog_network:
+    driver: bridge

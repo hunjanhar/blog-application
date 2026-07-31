@@ -1,0 +1,30 @@
+{% include './header.html' %}
+
+{% block content %}
+<div class="container" id="hero">
+  <h2>Login</h2>
+  <form method="POST" action="{{ url_for('auth.login') }}">
+    <div class="mb-3">
+      <label class="form-label">Email</label>
+      <input type="email" class="form-control" name="email" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Password</label>
+      <input type="password" class="form-control" name="password" required>
+    </div>
+    <button type="submit" class="btn btn-dark">Login</button>
+  </form>
+
+  {% with messages = get_flashed_messages() %}
+  {% if messages %}
+  <div style="background:#f8d7da; padding:10px; margin:10px 0; border-radius:5px;">
+    {% for msg in messages %}
+    <p style="color:red; margin:0;">{{ msg }}</p>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% endwith %}
+</div>
+{% endblock %}
+
+{% include './footer.html' %}

@@ -1,0 +1,133 @@
+name: CI Notification Workflow
+
+on:
+  workflow_call:
+    inputs:
+      test_result:
+        required: true
+        type: string
+      build_result:
+        required: true
+        type: string
+      security_result:
+        required: true
+        type: string
+      github_repo:
+        required: true
+        type: string
+      github_repo_id:
+        required: true
+        type: string
+    secrets:
+      MAIL_USERNAME:
+        required: true
+      MAIL_APP_PASSWORD:
+        required: true
+      EMAIL:
+        required: true
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Status Email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_APP_PASSWORD }}
+          subject: "${{ (inputs.test_result == 'success' && inputs.security_result == 'success' && inputs.build_result == 'success') && '🚀 SUCCESS' || '💥 FAILURE' }}: CI Pipeline Execution"
+          to: ${{ secrets.EMAIL }}
+          from: "GitHub Actions Workflow <${{ secrets.MAIL_USERNAME }}>"
+          html_body: |
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <meta charset="utf-8">
+              <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f6f8; margin: 0; padding: 20px; }
+                .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; border: 1px solid #e1e4e8; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+                .header { padding: 24px; text-align: center; color: #ffffff; }
+                .header.success { background-color: #28a745; }
+                .header.failure { background-color: #d9534f; }
+                .content { padding: 24px; color: #333333; }
+                .status-table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+                .status-table td { padding: 12px 8px; border-bottom: 1px solid #edf2f7; font-size: 14px; }
+                .badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-weight: bold; font-size: 12px; text-transform: uppercase; }
+                .badge-success { background-color: #e6fffa; color: #047857; border: 1px solid #a7f3d0; }
+                .badge-failure { background-color: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+                .badge-neutral { background-color: #f3f4f6; color: #4b5563; border: 1px solid #e5e7eb; }
+                .btn { display: inline-block; padding: 12px 20px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; margin-top: 10px; color: #ffffff !important; }
+                .btn-success { background-color: #0969da; }
+                .btn-failure { background-color: #d9534f; }
+                .alert-box { background-color: #fff0f0; border: 1px solid #fecaca; border-radius: 6px; padding: 12px 16px; margin-top: 15px; font-size: 13px; color: #991b1b; }
+                .footer { background-color: #f8f9fa; padding: 16px; text-align: center; font-size: 12px; color: #6c757d; border-top: 1px solid #e1e4e8; }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <!-- Dynamic Header Banner -->
+                <div class="header ${{ (inputs.test_result == 'success' && inputs.security_result == 'success' && inputs.build_result == 'success') && 'success' || 'failure' }}">
+                  <h2 style="margin: 0;">
+                    ${{ (inputs.test_result == 'success' && inputs.security_result == 'success' && inputs.build_result == 'success') && '🚀 Pipeline Succeeded' || '💥 Pipeline Failed' }}
+                  </h2>
+                </div>
+
+                <!-- Body Content -->
+                <div class="content">
+                  <p style="font-size: 15px; line-height: 1.5; margin-top: 0;">
+                    The CI/CD pipeline execution for repository <b>${{ inputs.github_repo }}</b> has finished.
+                  </p>
+
+                  <!-- Results Table -->
+                  <table class="status-table">
+                    <tr>
+                      <td><b>🧪 Test Stage:</b></td>
+                      <td style="text-align: right;">
+                        <span class="badge ${{ inputs.test_result == 'success' && 'badge-success' || (inputs.test_result == 'failure' && 'badge-failure' || 'badge-neutral') }}">
+                          ${{ inputs.test_result }}
+                        </span>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td><b>🛡️ Security Scan Stage:</b></td>
+                      <td style="text-align: right;">
+                        <span class="badge ${{ inputs.security_result == 'success' && 'badge-success' || (inputs.security_result == 'failure' && 'badge-failure' || 'badge-neutral') }}">
+                          ${{ inputs.security_result }}
+                        </span>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td><b>📦 Build Stage:</b></td>
+                      <td style="text-align: right;">
+                        <span class="badge ${{ inputs.build_result == 'success' && 'badge-success' || (inputs.build_result == 'failure' && 'badge-failure' || 'badge-neutral') }}">
+                          ${{ inputs.build_result }}
+                        </span>
+                      </td>
+                    </tr>
+                  </table>
+
+                  <!-- Failure Callout Box (Only displays if a stage failed) -->
+                  ${{ (inputs.test_result == 'failure' || inputs.security_result == 'failure' || inputs.build_result == 'failure') && '
+                  <div class="alert-box">
+                    <strong>⚠️ Action Required:</strong> One or more stages failed during execution. Downstream stages may have been skipped automatically. Please inspect logs to resolve the issue.
+                  </div>
+                  ' || '' }}
+
+                  <!-- Dynamic Action Button -->
+                  <div style="text-align: center; margin-top: 25px;">
+                    <a href="https://github.com/${{ inputs.github_repo }}/actions/runs/${{ inputs.github_repo_id }}" 
+                       class="btn ${{ (inputs.test_result == 'success' && inputs.security_result == 'success' && inputs.build_result == 'success') && 'btn-success' || 'btn-failure' }}">
+                      ${{ (inputs.test_result == 'success' && inputs.security_result == 'success' && inputs.build_result == 'success') && '🔍 View Full Pipeline Logs' || '📜 Inspect Failure Logs' }}
+                    </a>
+                  </div>
+                </div>
+
+                <!-- Footer -->
+                <div class="footer">
+                  Automated notification sent by GitHub Actions Workflow.
+                </div>
+              </div>
+            </body>
+            </html>

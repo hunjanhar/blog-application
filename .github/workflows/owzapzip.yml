@@ -1,0 +1,40 @@
+name: Owzap-zip Workflow
+
+on:
+  workflow_call:
+    inputs:
+      server_ip:
+        type: string
+        required: true
+
+jobs:
+  dynamic-security-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Fix Directory Permissions
+        run: sudo chmod -R 777 .
+
+      - name: Run ZAP Scan
+        run: |
+          docker run -v ${{ github.workspace }}:/zap/wrk/:rw \
+          --network=host \
+          -t ghcr.io/zaproxy/zaproxy:stable \
+          zap-baseline.py -t http://${{ inputs.server_ip }}:8080 \
+          -J report_json.json -w report_md.md -r report_html.html || true
+
+      - name: Upload Scan Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ZAP-Security-Report
+          path: |
+            report_html.html
+            report_md.md
+            report_json.json
+          retention-days: 7

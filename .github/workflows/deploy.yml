@@ -1,0 +1,122 @@
+name: Deploy Workflow
+
+on:
+  workflow_call:
+    inputs:
+      server_ip:
+        type: string
+        required: true
+      image_tag:
+        type: string
+        required: true
+        default: 'latest'
+      TARGET_BRANCH:
+        type: string
+        required: true
+        default: 'prod'
+    secrets:
+      SSH_PRIVATE_KEY:
+        required: true
+      VAULT_TOKEN:
+        required: true
+      REPO_TOKEN:
+        required: false
+      MYSQL_HOST:
+        required: true
+      MYSQL_USER:
+        required: true
+      MYSQL_PASSWORD:
+        required: true
+      MYSQL_DATABASE:
+        required: true
+      REDIS_HOST:
+        required: false
+      REDIS_PORT:
+        required: false
+      AWS_REGION:
+        required: true
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_BUCKET_NAME:
+        required: true
+      AWS_BUCKET_URL:
+        required: true
+
+env:
+  IMAGE_NAME: 'hunjanhar/blog-app'
+  TARGET_NAMESPACE: 'blog-app-ns'
+
+jobs:
+  deploy-to-ec2:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.REPO_TOKEN }}
+          fetch-depth: 0
+
+      - name: Update K8s Manifest & Commit to Prod Branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          TARGET_BRANCH="${{ inputs.TARGET_BRANCH }}"
+          git fetch origin
+          git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH" || git checkout -b "$TARGET_BRANCH"
+          sed -i "s|hunjanhar/blog-app:.*|hunjanhar/blog-app:${{ inputs.image_tag }}|g" k8s/prod-deployment/app-deployment.yml
+          
+          if git status --porcelain | grep -q 'M k8s/prod-deployment/app-deployment.yml'; then
+            git add k8s/prod-deployment/app-deployment.yml
+            git commit -m "update image tag to ${{ inputs.image_tag }}"
+            git push https://x-access-token:${{ secrets.REPO_TOKEN }}@github.com/${{ github.repository }}.git "$TARGET_BRANCH"
+          else
+            echo "Manifest matches remote tracking. Nothing to commit."
+          fi
+
+      - name: Setup SSH Key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Copy Manifest and Configuration Files to Remote Host
+        run: |
+          scp -o StrictHostKeyChecking=no -r k8s ubuntu@${{ inputs.server_ip }}:/tmp/
+          scp -o StrictHostKeyChecking=no -r argocd-config ubuntu@${{ inputs.server_ip }}:/tmp/ || true
+
+      - name: Inject Credentials into Vault via SSH
+        run: |
+          ssh -o StrictHostKeyChecking=no ubuntu@${{ inputs.server_ip }} \
+            "export KUBECONFIG=~/.kube/config && \
+            kubectl exec -i -n vault vault-0 -- env VAULT_TOKEN='${{ secrets.VAULT_TOKEN }}' vault kv put secret/production/blog-app \
+            REDIS_HOST='${{ secrets.REDIS_HOST }}' \
+            REDIS_PORT='${{ secrets.REDIS_PORT }}' \
+            MYSQL_HOST='${{ secrets.MYSQL_HOST }}' \
+            MYSQL_DATABASE='${{ secrets.MYSQL_DATABASE }}' \
+            MYSQL_USER='${{ secrets.MYSQL_USER }}' \
+            MYSQL_PASSWORD='${{ secrets.MYSQL_PASSWORD }}' \
+            AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}' \
+            AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}' \
+            AWS_BUCKET_NAME='${{ secrets.AWS_BUCKET_NAME }}' \
+            AWS_BUCKET_URL='${{ secrets.AWS_BUCKET_URL }}'"
+
+      - name: create Namespace & Vault
+        run: |
+          ssh -o StrictHostKeyChecking=no ubuntu@${{ inputs.server_ip }} \
+            "export KUBECONFIG=~/.kube/config && \
+            kubectl create namespace ${{ env.TARGET_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f - && \
+            kubectl delete secret vault-token -n ${{ env.TARGET_NAMESPACE }} --ignore-not-found=true && \
+            kubectl create secret generic vault-token -n ${{ env.TARGET_NAMESPACE }} --from-literal=token='${{ secrets.VAULT_TOKEN }}'"
+
+      - name: Apply ArgoCD Manifests
+        run: |
+          ssh -o StrictHostKeyChecking=no ubuntu@${{ inputs.server_ip }} \
+            "export KUBECONFIG=~/.kube/config && \
+             if [ ! -z \"\$(kubectl get application blog-app-argocd -n argocd --no-headers -o name 2>/dev/null)\" ]; then \
+                echo 'Skipping: ArgoCD application is already running.'; \
+             else \
+                echo 'Applying ArgoCD application configurations...'; \
+                kubectl apply -R -f /tmp/argocd-config/; \
+             fi"

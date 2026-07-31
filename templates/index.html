@@ -1,0 +1,64 @@
+{% include './header.html' %}
+
+<div class="container mb-5" id="hero">
+    <div class="row justify-content-end">
+        <div class="col-lg-6 hero-img-container">
+            <a href="#">
+                <div class="hero-img">
+                    <img src="{{ url_for('static', filename='img/hero-img.png') }}">
+                </div>
+            </a>
+        </div>
+        <div class="col-lg-9">
+            <div class="hero-title">
+                <h1>Exploring the Shadows Where Reality Ends and the Unexplained Begins</h1>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="hero-meta">
+                <p>Evidence, eyewitness accounts, and mysteries that refuse to be solved</p>
+                <div class="author">
+                    <div class="author-img"><img src="{{ url_for('static', filename='img/author-img.jpg') }}"></div>
+                    <div class="author-meta">
+                        <span class="author-name">Jessica Chobot</span>
+                        <span class="author-tag">American television host, writer, and podcaster.</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container mt-5 mb-5" id="article-grid">
+    <div class="row justify-content-center">
+        {% block content %}
+        {% for post in posts %}
+        <div class="col-xl-6 col-lg-8 col-md-10 mb-4">
+            <div class="art">
+                <a href="{{ url_for('posts.single_post', id=post.id) }}" style="text-decoration: none; color: inherit;">
+                    <div class="article-img">
+                        {% if post.image %}
+                            {% if post.image.startswith('http://') or post.image.startswith('https://') %}
+                                <img src="{{ post.image }}" class="img-fluid" alt="{{ post.title }}">
+                            {% else %}
+                                {% if 'static/uploads/' in post.image %}
+                                    <img src="{{ config['AWS_BUCKET_URL'] }}{{ post.image.split('/')[-1] }}" class="img-fluid" alt="{{ post.title }}">
+                                {% else %}
+                                    <img src="{{ config['AWS_BUCKET_URL'] }}{{ post.image }}" class="img-fluid" alt="{{ post.title }}">
+                                {% endif %}
+                            {% endif %}
+                        {% endif %}
+                    </div>
+                    <div class="article-meta text-start p-3">
+                        <h3>{{ post.title }}</h3>
+                        <p>{{ post.content[:70] }}...</p>
+                    </div>
+                </a>
+            </div>
+        </div>
+        {% endfor %}
+        {% endblock %}
+    </div>
+</div>
+
+{% include './footer.html' %}
